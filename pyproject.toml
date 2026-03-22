@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "code-improvement-loop"
-version = "0.1.0"
+version = "1.0.0"
 description = "Autonomous code auditing and improvement framework powered by LLMs"
 readme = "README.md"
 license = "MIT"
