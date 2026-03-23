@@ -10,29 +10,19 @@ import argparse
 import json
 import os
 import sys
-import time
 from typing import List
-
-import anthropic  # type: ignore
 
 from improvement_loop import loop_tracker
 from improvement_loop import git_utils
 from improvement_loop.evaluator import Finding
+from improvement_loop.agents._api import api_call_with_retry as _api_call_with_retry
 from improvement_loop.agents.auditor import get_audit_system_prompt, collect_source_files
+from improvement_loop.agents.implementer import apply_fix
 from improvement_loop.loop_config import get_config as _get_loop_config
 from improvement_loop.project_config import get_project_config
 
 # Repo root is one level up from this file's directory
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _get_client() -> anthropic.Anthropic:
-    """Return an Anthropic client, using the config API key if set."""
-    cfg = _get_loop_config()
-    kwargs = {}
-    if cfg.anthropic_api_key:
-        kwargs["api_key"] = cfg.anthropic_api_key
-    return anthropic.Anthropic(**kwargs)
 
 
 def _get_critical_flags() -> frozenset:
@@ -41,33 +31,6 @@ def _get_critical_flags() -> frozenset:
     if pcfg.critical_flags:
         return frozenset(pcfg.critical_flags)
     return frozenset({"LEAKAGE_RISK", "PHI_RISK"})
-
-
-def _api_call_with_retry(create_kwargs: dict) -> str:
-    """Call client.messages.create with rate-limit retry. Returns response text.
-
-    Uses streaming to avoid the SDK's 10-minute timeout guard for large
-    max_tokens values.
-    """
-    cfg = _get_loop_config()
-    client = _get_client()
-    for attempt in range(1, cfg.max_api_retries + 1):
-        try:
-            collected: list[str] = []
-            with client.messages.stream(**create_kwargs) as stream:
-                for text in stream.text_stream:
-                    collected.append(text)
-            return "".join(collected)
-        except anthropic.RateLimitError:
-            delay = cfg.retry_base_delay * attempt
-            print(f"    Rate limited (attempt {attempt}/{cfg.max_api_retries}), "
-                  f"waiting {delay:.0f}s...")
-            time.sleep(delay)
-            if attempt == cfg.max_api_retries:
-                raise
-        except anthropic.APIError:
-            raise
-    return ""  # unreachable
 
 
 def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
@@ -195,7 +158,7 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
             git_utils.create_branch(finding.branch_name, base=original_branch)
 
             # Use Claude to generate and apply the fix
-            _apply_single_fix(finding)
+            apply_fix(finding, repo_root=REPO_ROOT)
 
             # Commit changes
             git_utils.commit_all(
@@ -257,40 +220,6 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
                 pass
 
     return all_passed
-
-
-def _apply_single_fix(finding: Finding) -> None:
-    """Use Claude to generate and apply a code fix for a single finding."""
-    file_path = os.path.join(REPO_ROOT, finding.file)
-    if not os.path.exists(file_path):
-        print(f"    WARNING: File {finding.file} not found, skipping")
-        return
-
-    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-        original_content = f.read()
-
-    cfg = _get_loop_config()
-    new_content = _api_call_with_retry({
-        "model": cfg.fix_model,
-        "max_tokens": cfg.fix_max_tokens,
-        "system": (
-            "You are a code fixer. Given the original file and a description of the fix, "
-            "return ONLY the complete updated file content. No markdown fences, no commentary, "
-            "no explanation — just the raw file content ready to be written to disk."
-        ),
-        "messages": [{
-            "role": "user",
-            "content": (
-                f"File: {finding.file}\n"
-                f"Problem: {finding.description}\n"
-                f"Fix: {finding.fix}\n\n"
-                f"Original file content:\n{original_content}"
-            ),
-        }],
-    })
-    with open(file_path, "w", encoding="utf-8", newline="") as f:
-        f.write(new_content)
-    print(f"    Updated {finding.file}")
 
 
 def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:

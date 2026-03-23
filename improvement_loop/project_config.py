@@ -32,6 +32,7 @@ class ProjectConfig:
     key_files: List[str] = field(default_factory=list)
     audit_system_prompt: str = ""  # loaded from prompts.audit_system
     review_system_prompt: str = ""  # loaded from prompts.review_system
+    fix_system_prompt: str = ""  # loaded from prompts.fix_system
     judge_system_prompt: str = ""  # loaded from prompts.judge_system
     judge_calibration: str = ""  # loaded from prompts.judge_calibration
     risk_flags: List[str] = field(
@@ -88,6 +89,7 @@ def load_project_config(path: Optional[str] = None) -> ProjectConfig:
     prompt_mapping = {
         "audit_system": "audit_system_prompt",
         "review_system": "review_system_prompt",
+        "fix_system": "fix_system_prompt",
         "judge_system": "judge_system_prompt",
         "judge_calibration": "judge_calibration",
     }
