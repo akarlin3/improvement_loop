@@ -184,7 +184,10 @@ def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
 
 
 def run_matlab_tests() -> bool:
-    """Run the MATLAB test suite.
+    """Run the MATLAB test suite, recording failing test names to a file.
+
+    Writes ``matlab_test_failures.txt`` in the repo root with one failing
+    test name per line. The file is removed if all tests pass.
 
     Returns True if exit code 0, False otherwise.
     If ``matlab`` is not on PATH, logs a warning and returns True
@@ -194,19 +197,40 @@ def run_matlab_tests() -> bool:
         logger.warning("matlab not found on PATH — skipping MATLAB tests")
         return True
 
+    failures_path = REPO_ROOT / "matlab_test_failures.txt"
+
+    # MATLAB snippet: run tests, write failing names to file, then exit
+    matlab_cmd = (
+        "results = runtests('pipeline/tests'); "
+        f"fid = fopen('{failures_path.as_posix()}', 'w'); "
+        "for i = 1:numel(results), "
+        "  if results(i).Failed, "
+        "    fprintf(fid, '%s\\n', results(i).Name); "
+        "  end; "
+        "end; "
+        "fclose(fid); "
+        "if any([results.Failed]), exit(1); else exit(0); end"
+    )
+
     result = subprocess.run(
-        [
-            "matlab",
-            "-batch",
-            (
-                "results = runtests('pipeline/tests'); "
-                "if any([results.Failed]), exit(1); else exit(0); end"
-            ),
-        ],
+        ["matlab", "-batch", matlab_cmd],
         cwd=REPO_ROOT,
         check=False,
     )
-    return result.returncode == 0
+
+    passed = result.returncode == 0
+
+    if passed and failures_path.exists():
+        failures_path.unlink()
+    elif failures_path.exists():
+        content = failures_path.read_text(encoding="utf-8").strip()
+        n = len(content.splitlines()) if content else 0
+        print(f"    ❌  {n} MATLAB test failure(s) — see {failures_path}")
+    else:
+        if not passed:
+            print("    ❌  MATLAB tests failed (no failure details captured)")
+
+    return passed
 
 
 # ---------------------------------------------------------------------------
