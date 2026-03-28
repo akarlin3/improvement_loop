@@ -23,6 +23,9 @@ read_only_dirs: []                     # Dirs the loop may read but must not mod
 skip_dirs: [".git", "__pycache__"]     # Dirs to skip when indexing / scanning
 key_files: []                          # Important files the auditor should always review
 
+# --- API ---
+anthropic_api_key:                   # If empty, falls back to loop config / ANTHROPIC_API_KEY env var
+
 # --- Prompts (multi-line YAML strings recommended) ---
 prompts:
   audit_system: |

@@ -5,14 +5,20 @@ import time
 import anthropic  # type: ignore
 
 from improvement_loop.loop_config import get_config
+from improvement_loop.project_config import get_project_config
 
 
 def get_client() -> anthropic.Anthropic:
-    """Return an Anthropic client, using the config API key if set."""
-    cfg = get_config()
+    """Return an Anthropic client, using the config API key if set.
+
+    Resolution order: project_config.yaml → loop config JSON → ANTHROPIC_API_KEY env var.
+    """
+    project_cfg = get_project_config()
+    loop_cfg = get_config()
+    api_key = project_cfg.anthropic_api_key or loop_cfg.anthropic_api_key
     kwargs = {}
-    if cfg.anthropic_api_key:
-        kwargs["api_key"] = cfg.anthropic_api_key
+    if api_key:
+        kwargs["api_key"] = api_key
     return anthropic.Anthropic(**kwargs)
 
 
