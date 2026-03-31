@@ -90,6 +90,10 @@ def log_iteration(
     # Determine exit condition
     exit_condition_met = not should_continue_loop(scores, findings, dry_run=dry_run)
 
+    # Use the same importance threshold as the evaluator's exit logic
+    from improvement_loop.loop_config import get_config
+    importance_threshold = get_config().importance_threshold
+
     entry = {
         "iteration": iteration,
         "timestamp": datetime.now().isoformat(),
@@ -97,7 +101,7 @@ def log_iteration(
         "findings": tagged_findings,
         "findings_count": len(findings),
         "high_priority_findings": len(
-            [f for f in findings if f.importance >= 2]
+            [f for f in findings if f.importance >= importance_threshold]
         ),
         "branches_created": branches_created,
         "branches_merged": branches_merged,

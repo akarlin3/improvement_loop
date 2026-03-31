@@ -367,8 +367,43 @@ def _phase_test_and_merge(state: IterationState) -> None:
 
             print("    Tests passed on branch")
 
+            # Rebase onto latest target before merging to pick up
+            # changes from previously merged findings in this iteration
+            print(f"    Rebasing {finding.branch_name} onto {state.original_branch}...")
+            rebase_result = subprocess.run(
+                ["git", "rebase", state.original_branch],
+                capture_output=True, text=True, check=False,
+            )
+            if rebase_result.returncode != 0:
+                print(f"    Rebase conflict — aborting rebase, skipping merge")
+                subprocess.run(
+                    ["git", "rebase", "--abort"],
+                    capture_output=True, check=False,
+                )
+                finding.status = "implemented"
+                state.all_tests_passed = False
+                continue
+
+            # Re-run tests after rebase to ensure compatibility with
+            # previously merged findings
+            print("    Re-running tests after rebase...")
+            post_rebase_ok = git_utils.run_python_tests()
+            if not post_rebase_ok:
+                print("    Tests failed after rebase — skipping merge")
+                finding.status = "implemented"
+                fs.tests_passed = False
+                state.all_tests_passed = False
+                continue
+
             # Merge
             print(f"    Merging: {finding.branch_name}")
+            # Record the pre-merge commit so we can revert if post-merge
+            # tests fail
+            pre_merge_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=False,
+                cwd=REPO_ROOT,
+            ).stdout.strip()
             try:
                 git_utils.merge_branch(
                     finding.branch_name, target=state.original_branch,
@@ -380,15 +415,20 @@ def _phase_test_and_merge(state: IterationState) -> None:
 
                 # Post-merge sanity check
                 print(f"    Post-merge test run on {state.original_branch}")
-                if not git_utils.run_syntax_check():
-                    print("    Post-merge syntax error — merge may have introduced issues")
-                    state.all_tests_passed = False
-                    continue
-                post_ok = git_utils.run_python_tests()
-                if post_ok:
+                post_syntax_ok = git_utils.run_syntax_check()
+                post_test_ok = post_syntax_ok and git_utils.run_python_tests()
+                if post_test_ok:
                     print("    Post-merge tests passed")
                 else:
-                    print("    Post-merge tests FAILED — merge may have introduced issues")
+                    reason = "syntax error" if not post_syntax_ok else "test failure"
+                    print(f"    Post-merge {reason} — reverting merge")
+                    subprocess.run(
+                        ["git", "reset", "--hard", pre_merge_sha],
+                        capture_output=True, check=False,
+                        cwd=REPO_ROOT,
+                    )
+                    finding.status = "implemented"
+                    fs.merged = False
                     state.all_tests_passed = False
             except Exception as e:
                 print(f"    Merge failed: {finding.branch_name} — {e}")
