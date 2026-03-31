@@ -9,17 +9,21 @@ from improvement_loop.project_config import get_project_config
 
 
 def get_client() -> anthropic.Anthropic:
-    """Return an Anthropic client, using the config API key if set.
+    """Return an Anthropic client using the project config API key.
 
-    Resolution order: project_config.yaml → loop config JSON → ANTHROPIC_API_KEY env var.
+    The key must be set in project_config.yaml (``anthropic_api_key``) or
+    in the loop config JSON (``anthropic_api_key``).  The ANTHROPIC_API_KEY
+    environment variable is **not** used.
     """
     project_cfg = get_project_config()
     loop_cfg = get_config()
     api_key = project_cfg.anthropic_api_key or loop_cfg.anthropic_api_key
-    kwargs = {}
-    if api_key:
-        kwargs["api_key"] = api_key
-    return anthropic.Anthropic(**kwargs)
+    if not api_key:
+        raise ValueError(
+            "No anthropic_api_key found in project_config.yaml or "
+            "improvement_loop_config.json. Set it in your project config."
+        )
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def api_call_with_retry(create_kwargs: dict) -> str:
